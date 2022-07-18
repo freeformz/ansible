@@ -161,7 +161,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 if self.config.get("strip_tag", True):
                     tags = list(map(strip_tag, tags))
                 self.inventory.set_variable(host_name, "tags", tags)
-                for tag in h["Tags"]:
+                for tag in tags:
                     safe_tag = tag.replace(":", "_")
                     if safe_tag not in self.inventory.groups:
                         self.inventory.add_group(safe_tag)
