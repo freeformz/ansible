@@ -25,7 +25,7 @@ plugin: freeformz.ansible.tailscale
 ```yaml
 plugin: freeformz.ansible.tailscale
 include_self: false
-ansible_host: ipv4
+ansible_host: host_name
 strip_tag: true
 os_groups: true
 ```
