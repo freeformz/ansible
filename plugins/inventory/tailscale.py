@@ -122,6 +122,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
 
         for h in all_hosts:
             host_name = h["HostName"]
+            hn = h["DNSName"].split(".")[0]
+            if hn != host_name:
+                host_name = hn
             if host_name not in self.inventory.hosts:
                 self.inventory.add_host(host_name)
                 ipv4 = tailscale_ipv4(host_name)
