@@ -24,7 +24,7 @@ DOCUMENTATION = """
         ansible_host:
             description: set the ansible_host to which value?
             required: false
-            choices: ['ipv4','ipv6','dns']
+            choices: ['ipv4','ipv6','dns','host_name']
             default: ipv4
         strip_tag:
             description: strip the tag colon prefix from the start of tags
@@ -135,7 +135,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 elif ansible_host == "ipv6":
                     self.inventory.set_variable(host_name, "ansible_host", ipv6)
                 elif ansible_host == "dns":
-                    self.inventory.set_variable(host_name, "ansible_host", h["DNSName"])
+                    self.inventory.set_variable(host_name, "ansible_host", h["DNSName"].removesuffix("."))
+                elif ansible_host == "host_name":
+                    self.inventory.set_variable(host_name, "ansible_host", host_name)
 
                 for variable in self.VARIABLE_MAPPINGS:
                     if variable in h:
