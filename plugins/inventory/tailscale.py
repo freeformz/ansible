@@ -25,7 +25,7 @@ DOCUMENTATION = """
             description: set the ansible_host to which value?
             required: false
             choices: ['ipv4','ipv6','dns','host_name']
-            default: ipv4
+            default: host_name
         strip_tag:
             description: strip the tag colon prefix from the start of tags
             type: bool
