@@ -1,8 +1,19 @@
 import json
-import platform
-import subprocess
+import ipaddress
+import socket
+import re
+
+from ansible.module_utils.urls import Request
+
+try:
+    from __main__ import display
+except ImportError:
+    from ansible.utils.display import Display
+
+    display = Display()
 
 __metaclass__ = type
+
 
 DOCUMENTATION = """
     name: tailscale
@@ -10,14 +21,22 @@ DOCUMENTATION = """
     short_description: Tailscale Inventory Source
     extends_documentation_fragment:
         - constructed
-    description: Get inventory hosts from current Tailscale tailnet.
+    description: Get hosts from a Tailscale tailnet using the Tailscale API - https://github.com/tailscale/tailscale/blob/main/api.md#tailnet-devices
     options:
         plugin:
             description: token to ensure this is a source file for the 'tailscale' plugin.
             required: True
             choices: ['freeformz.ansible.tailscale']
+        api_key:
+            description: API key to use.
+            type: string
+            required: true
+        tailnet:
+            description: Tailnet that we should use.
+            type: string
+            required: true
         include_self:
-            description: Include this system in the output?
+            description: Include this system in the inventory?
             type: bool
             required: false
             default: false
@@ -36,10 +55,17 @@ DOCUMENTATION = """
             type: bool
             default: True
             required: false
+        tailscale_domain:
+            description: The tailscale domain to use when constructing a fully qualified hostname.
+            type: string
+            default: "beta.tailscale.net"
+            required: false
 """
 
 EXAMPLES = """
 plugin: freeformz.ansible.tailscale
+api_key: "tskey-abunchofcharacters"
+tailnet: my.tailnet
 include_self: false
 ansible_host: host_name
 strip_tag: true
@@ -53,122 +79,238 @@ def strip_tag(tag):
     return tag.removeprefix("tag:")
 
 
-def tailscale_cli():
-    tailscale_cmd = "tailscale"
-    if platform.system() == "Darwin":
-        tailscale_cmd = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-    return tailscale_cmd
+def safe_tag(tag):
+    return tag.replace(":", "_")
 
 
-def tailscale_status():
-    proc = subprocess.run([tailscale_cli(), "status", "--json"], capture_output=True)
-    return json.loads(proc.stdout)
+def map_name(name):
+    n = []
+    last_upper = False
+    for c in name:
+        if not c.isupper():
+            last_upper = False
+            n.append(c)
+            continue
+        if not last_upper:
+            n.append("_")
+        n.append(c.lower())
+        last_upper = True
+    return "".join(n)
 
 
-def tailscale_ipv4(host):
-    proc = subprocess.run([tailscale_cli(), "ip", "-4", host], capture_output=True)
-    return proc.stdout.strip().decode("utf-8")
+def map_dict(d):
+    if not type(d) is dict:
+        return d
+    nd = {}
+    for k, v in d.items():
+        k = map_name(k)
+        if type(v) is dict:
+            nd[map_name(k)] = map_dict(v)
+        else:
+            nd[map_name(k)] = v
+    return nd
 
 
-def tailscale_ipv6(host):
-    proc = subprocess.run([tailscale_cli(), "ip", "-6", host], capture_output=True)
-    return proc.stdout.strip().decode("utf-8")
+class TailscaleHost:
+    def __init__(self, hostname, id, data):
+        self.name = hostname
+        self.id = id
+        self.data = data
+
+    def ipv4(self):
+        for address in self.data["addresses"]:
+            addr = ipaddress.ip_address(address)
+            if addr.__class__ == ipaddress.IPv4Address:
+                return address
+
+    def ipv6(self):
+        for address in self.data["addresses"]:
+            addr = ipaddress.ip_address(address)
+            if addr.__class__ == ipaddress.IPv6Address:
+                return address
+
+    def is_self(self):
+        hn = socket.gethostname().split(".")[0]
+        return self.name == hn
+
+
+class TailscaleAPI:
+    """
+    {
+        "devices": [
+            {
+                "addresses": [
+                    "100.92.75.96",
+                    "fd7a:115c:a1e0:ab12:4843:cd96:625c:4b60"
+                ],
+                "id": "1343255325539688",
+                "user": "freeformz@github",
+                "name": "linode-1.freeformz.github",
+                "hostname": "li1196-33",
+                "clientVersion": "1.24.2-t9d6867fb0-g2d0f7ddc3",
+                "updateAvailable": true,
+                "os": "linux",
+                "created": "2021-08-07T22:26:07Z",
+                "lastSeen": "2022-07-18T20:44:31Z",
+                "keyExpiryDisabled": true,
+                "expires": "2022-02-03T22:26:07Z",
+                "authorized": true,
+                "isExternal": false,
+                "machineKey": "mkey:632c98c518b8cc0600ee401efdd840abe84f507a6b009e70707897c03193c324",
+                "nodeKey": "nodekey:7eba0046551e71ecb8ff87b3a4155b1424abdeb1ff3d035782b408f4c4dc4b5f",
+                "blocksIncomingConnections": false,
+                "enabledRoutes": [],
+                "advertisedRoutes": [],
+                "tags": [ "tag:thisisatag" ],
+                "clientConnectivity": {
+                    "endpoints": [
+                    "45.79.97.33:41641",
+                    "[2600:3c01::f03c:92ff:fea7:867b]:41641",
+                    "172.17.0.1:41641",
+                    "172.18.0.1:41641"
+                    ],
+                    "derp": "",
+                    "mappingVariesByDestIP": false,
+                    "latency": {
+                    "Chicago": {
+                        "latencyMs": 50.229614
+                    },
+                    "Dallas": {
+                        "latencyMs": 35.857095
+                    },
+                    "New York City": {
+                        "latencyMs": 70.991985
+                    },
+                    "San Francisco": {
+                        "preferred": true,
+                        "latencyMs": 2.570926
+                    },
+                    "Seattle": {
+                        "latencyMs": 22.222779000000003
+                    },
+                    "Tokyo": {
+                        "latencyMs": 107.27332100000001
+                    }
+                    },
+                    "clientSupports": {
+                    "hairPinning": false,
+                    "ipv6": true,
+                    "pcp": false,
+                    "pmp": false,
+                    "udp": true,
+                    "upnp": false
+                    }
+                }
+            },
+    ...
+    ]
+    """
+
+    def __init__(self, api_key, tailnet, remove_tag_prefix=True):
+        self.request = Request(
+            url_username=api_key, url_password="", force_basic_auth=True
+        )
+        self.tailnet = tailnet
+        self.remove_tag_prefix = remove_tag_prefix
+        self.refresh()
+
+    def refresh(self):
+        res = self.request.get(
+            f"https://api.tailscale.com/api/v2/tailnet/{self.tailnet}/devices?fields=all",
+        )
+        res = json.loads(res.read())
+        self.hosts = {}
+        self.all_tags = set()
+        for host in res["devices"]:
+            hostname = host["hostname"]
+            del host["hostname"]
+            id = host["id"]
+            del host["id"]
+
+            tags = host.get("tags", None)
+            if tags:
+                if self.remove_tag_prefix:
+                    tags = list(map(strip_tag, tags))
+                tags = list(map(safe_tag, tags))
+                host["tags"] = tags
+                for tag in host["tags"]:
+                    self.all_tags.add(tag)
+
+            self.hosts[hostname] = TailscaleHost(hostname, id, host)
 
 
 class InventoryModule(BaseInventoryPlugin, Constructable):
-
-    VARIABLE_MAPPINGS = {
-        "OS": "os",
-        "ID": "id",
-        "PublicKey": "public_key",
-        "UserID": "user_id",
-        "TailscaleIPs": "tailscale_ips",
-        "Relay": "relay",
-        "RxBytes": "rx_bytes",
-        "TxBytes": "tx_bytes",
-        "Created": "created",
-        "LastWrite": "last_write",
-        "LastSeen": "last_seen",
-        "LastHandshake": "last_handshake",
-        "Online": "online",
-        "KeepAlive": "keep_alive",
-        "ExitNode": "exit_node",
-        "ExitNodeOption": "exit_node_option",
-        "Active": "active",
-        "sshHostKeys": "ssh_host_keys",
-        "InNetworkMap": "in_network_map",
-        "InMagicSock": "in_magic_sock",
-        "InEngine": "in_engine",
-        "Addrs": "addresses",
-        "PeerAPIURL": "peer_api_url",
-        "Capabilities": "capabilities",
-    }
-
     NAME = "freeformz.ansible.tailscale"
 
     def __init__(self):
         super(InventoryModule, self).__init__()
 
     def get_inventory(self):
-        tailscale_json = tailscale_status()
-
-        all_hosts = list(
-            tailscale_json["Peer"].values(),
+        api_key = self.config.get("api_key", None)
+        tailnet = self.config.get("tailnet", None)
+        tailscale = TailscaleAPI(
+            api_key, tailnet, remove_tag_prefix=self.config.get("strip_tag", True)
         )
-        if self.config.get("include_self", False):
-            all_hosts.append(
-                tailscale_json["Self"],
-            )
 
-        for h in all_hosts:
-            host_name = h["HostName"]
-            hn = h["DNSName"].split(".")[0]
-            if hn != host_name:
-                host_name = hn
-            if host_name not in self.inventory.hosts:
-                self.inventory.add_host(host_name)
-                ipv4 = tailscale_ipv4(host_name)
-                self.inventory.set_variable(host_name, "ipv4", ipv4)
-                ipv6 = tailscale_ipv6(host_name)
-                self.inventory.set_variable(host_name, "ipv6", ipv6)
+        for tag in tailscale.all_tags:
+            self.inventory.add_group(tag)
 
-                ansible_host = self.config.get("ansible_host", "ipv4")
-                if ansible_host == "ipv4":
-                    self.inventory.set_variable(host_name, "ansible_host", ipv4)
-                elif ansible_host == "ipv6":
-                    self.inventory.set_variable(host_name, "ansible_host", ipv6)
-                elif ansible_host == "dns":
-                    self.inventory.set_variable(host_name, "ansible_host", h["DNSName"].removesuffix("."))
-                elif ansible_host == "host_name":
-                    self.inventory.set_variable(host_name, "ansible_host", host_name)
+        for _, host in tailscale.hosts.items():
+            if host.name in self.inventory.hosts:
+                continue
 
-                for variable in self.VARIABLE_MAPPINGS:
-                    if variable in h:
-                        self.inventory.set_variable(
-                            host_name, self.VARIABLE_MAPPINGS[variable], h[variable]
-                        )
+            if not self.config.get("include_self", False) and host.is_self():
+                continue
 
-            state = "online" if h["Online"] else "offline"
-            if state not in self.inventory.groups:
-                self.inventory.add_group(state)
-            self.inventory.add_host(host_name, state)
+            hostname = host.name
+            mapped_host_name = host.data["name"]
+            if mapped_host_name:
+                mapped_host_name = mapped_host_name.split(".")[0]
+                if mapped_host_name != hostname:
+                    hostname = mapped_host_name
+
+            self.inventory.add_host(hostname)
+            ipv4 = host.ipv4()
+            if ipv4:
+                self.inventory.set_variable(hostname, "ipv4", ipv4)
+            ipv6 = host.ipv6()
+            if ipv6:
+                self.inventory.set_variable(hostname, "ipv6", ipv6)
+            ansible_host = self.config.get("ansible_host", "ipv4")
+            if ansible_host == "ipv4":
+                self.inventory.set_variable(hostname, "ansible_host", ipv4)
+            elif ansible_host == "ipv6":
+                self.inventory.set_variable(hostname, "ansible_host", ipv6)
+            elif ansible_host == "dns":
+                self.inventory.set_variable(
+                    hostname,
+                    "ansible_host",
+                    ".".join(
+                        [
+                            host.data["name"],
+                            self.config.get("tailscale_domain", "beta.tailscale.net"),
+                        ]
+                    ),
+                )
+            elif ansible_host == "host_name":
+                self.inventory.set_variable(hostname, "ansible_host", hostname)
 
             if self.config.get("os_groups", True):
-                os = h["OS"]
+                os = host.data["os"].lower()
                 if os not in self.inventory.groups:
                     self.inventory.add_group(os)
-                self.inventory.add_host(host_name, os)
+                self.inventory.add_host(hostname, os)
 
-            if "Tags" in h:
-                tags = h["Tags"]
-                if self.config.get("strip_tag", True):
-                    tags = list(map(strip_tag, tags))
-                self.inventory.set_variable(host_name, "tags", tags)
+            tags = host.data.get("tags", None)
+            if tags:
+                self.inventory.set_variable(hostname, "tags", tags)
                 for tag in tags:
-                    safe_tag = tag.replace(":", "_")
-                    if safe_tag not in self.inventory.groups:
-                        self.inventory.add_group(safe_tag)
-                    self.inventory.add_host(host_name, safe_tag)
+                    if tag not in self.inventory.groups:
+                        self.inventory.add_group(tag)
+                    self.inventory.add_host(host.name, tag)
+
+            for key, item in host.data.items():
+                self.inventory.set_variable(hostname, map_name(key), map_dict(item))
 
     def verify_file(self, path):
         """
@@ -189,3 +331,11 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
         self.templar = Templar(loader=loader)
 
         self.get_inventory()
+
+
+def main():
+    print("TODO")
+
+
+if __name__ == "__main__":
+    main()
