@@ -1,16 +1,15 @@
 import json
 import ipaddress
 import socket
-import re
 
+from datetime import datetime, timedelta
 from ansible.module_utils.urls import Request
 
-try:
-    from __main__ import display
-except ImportError:
-    from ansible.utils.display import Display
-
-    display = Display()
+# try:
+#    from __main__ import display
+# except ImportError:
+#    from ansible.utils.display import Display
+#    display = Display()
 
 __metaclass__ = type
 
@@ -60,6 +59,16 @@ DOCUMENTATION = """
             type: string
             default: "beta.tailscale.net"
             required: false
+        include_online_offline_groups:
+            description: Include online/offline groups?
+            type: bool
+            default: True
+            required: false
+        online_timeout:
+            description: Timeout, in minutes, used to determine when a host is considered "offline" when no latency information is returned by the api.
+            type: int
+            default: 10
+            required: false
 """
 
 EXAMPLES = """
@@ -70,6 +79,9 @@ include_self: false
 ansible_host: host_name
 strip_tag: true
 os_groups: true
+tailscale_domain: beta.tailscale.net
+include_online_offline_groups: true
+online_timeout: 10
 """
 
 from ansible.plugins.inventory import BaseInventoryPlugin, Constructable, Templar
@@ -133,6 +145,26 @@ class TailscaleHost:
         hn = socket.gethostname().split(".")[0]
         return self.name == hn
 
+    def online(self, timeout):
+        latency = self.data.get("clientConnectivity", {}).get("latency", {})
+        if len(latency) > 0:
+            return True
+
+        # 2022-07-13T09:29:56Z
+        last_seen = self.data.get("lastSeen", None)
+        try:
+            last_seen = datetime.strptime(last_seen, "%Y-%m-%dT%H:%M:%SZ")
+        except:
+            return False
+
+        print(self.name)
+        print(last_seen)
+        now = datetime.utcnow()
+        print(now)
+        print(now - last_seen)
+
+        return (now - last_seen) <= timeout
+
 
 class TailscaleAPI:
     """
@@ -164,41 +196,41 @@ class TailscaleAPI:
                 "tags": [ "tag:thisisatag" ],
                 "clientConnectivity": {
                     "endpoints": [
-                    "45.79.97.33:41641",
-                    "[2600:3c01::f03c:92ff:fea7:867b]:41641",
-                    "172.17.0.1:41641",
-                    "172.18.0.1:41641"
+                        "45.79.97.33:41641",
+                        "[2600:3c01::f03c:92ff:fea7:867b]:41641",
+                        "172.17.0.1:41641",
+                        "172.18.0.1:41641"
                     ],
                     "derp": "",
                     "mappingVariesByDestIP": false,
                     "latency": {
-                    "Chicago": {
-                        "latencyMs": 50.229614
-                    },
-                    "Dallas": {
-                        "latencyMs": 35.857095
-                    },
-                    "New York City": {
-                        "latencyMs": 70.991985
-                    },
-                    "San Francisco": {
-                        "preferred": true,
-                        "latencyMs": 2.570926
-                    },
-                    "Seattle": {
-                        "latencyMs": 22.222779000000003
-                    },
-                    "Tokyo": {
-                        "latencyMs": 107.27332100000001
-                    }
+                        "Chicago": {
+                            "latencyMs": 50.229614
+                        },
+                        "Dallas": {
+                            "latencyMs": 35.857095
+                        },
+                        "New York City": {
+                            "latencyMs": 70.991985
+                        },
+                        "San Francisco": {
+                            "preferred": true,
+                            "latencyMs": 2.570926
+                        },
+                        "Seattle": {
+                            "latencyMs": 22.222779000000003
+                        },
+                        "Tokyo": {
+                            "latencyMs": 107.27332100000001
+                        }
                     },
                     "clientSupports": {
-                    "hairPinning": false,
-                    "ipv6": true,
-                    "pcp": false,
-                    "pmp": false,
-                    "udp": true,
-                    "upnp": false
+                        "hairPinning": false,
+                        "ipv6": true,
+                        "pcp": false,
+                        "pmp": false,
+                        "udp": true,
+                        "upnp": false
                     }
                 }
             },
@@ -208,7 +240,9 @@ class TailscaleAPI:
 
     def __init__(self, api_key, tailnet, remove_tag_prefix=True):
         self.request = Request(
-            url_username=api_key, url_password="", force_basic_auth=True
+            url_username=api_key,
+            url_password="",
+            force_basic_auth=True,
         )
         self.tailnet = tailnet
         self.remove_tag_prefix = remove_tag_prefix
@@ -246,20 +280,24 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
         super(InventoryModule, self).__init__()
 
     def get_inventory(self):
-        api_key = self.config.get("api_key", None)
-        tailnet = self.config.get("tailnet", None)
+        api_key = self.get_option("api_key")
+        tailnet = self.get_option("tailnet")
+        print(api_key)
+        print(tailnet)
         tailscale = TailscaleAPI(
-            api_key, tailnet, remove_tag_prefix=self.config.get("strip_tag", True)
+            api_key, tailnet, remove_tag_prefix=self.get_option("strip_tag")
         )
+
+        online_offline_groups = self.get_option("include_online_offline_groups")
+        if online_offline_groups:
+            for group in ["online", "offline"]:
+                self.inventory.add_group(group)
 
         for tag in tailscale.all_tags:
             self.inventory.add_group(tag)
 
         for _, host in tailscale.hosts.items():
-            if host.name in self.inventory.hosts:
-                continue
-
-            if not self.config.get("include_self", False) and host.is_self():
+            if not self.get_option("include_self") and host.is_self():
                 continue
 
             hostname = host.name
@@ -269,6 +307,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 if mapped_host_name != hostname:
                     hostname = mapped_host_name
 
+            if hostname in self.inventory.hosts:
+                continue
+
             self.inventory.add_host(hostname)
             ipv4 = host.ipv4()
             if ipv4:
@@ -276,7 +317,15 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
             ipv6 = host.ipv6()
             if ipv6:
                 self.inventory.set_variable(hostname, "ipv6", ipv6)
-            ansible_host = self.config.get("ansible_host", "ipv4")
+
+            status = (
+                "online"
+                if host.online(timedelta(minutes=self.get_option("online_timeout")))
+                else "offline"
+            )
+            self.inventory.set_variable(hostname, "status", status)
+
+            ansible_host = self.get_option("ansible_host")
             if ansible_host == "ipv4":
                 self.inventory.set_variable(hostname, "ansible_host", ipv4)
             elif ansible_host == "ipv6":
@@ -288,14 +337,14 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                     ".".join(
                         [
                             host.data["name"],
-                            self.config.get("tailscale_domain", "beta.tailscale.net"),
+                            self.get_option("tailscale_domain"),
                         ]
                     ),
                 )
             elif ansible_host == "host_name":
                 self.inventory.set_variable(hostname, "ansible_host", hostname)
 
-            if self.config.get("os_groups", True):
+            if self.get_option("os_groups", True):
                 os = host.data["os"].lower()
                 if os not in self.inventory.groups:
                     self.inventory.add_group(os)
@@ -307,10 +356,13 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 for tag in tags:
                     if tag not in self.inventory.groups:
                         self.inventory.add_group(tag)
-                    self.inventory.add_host(host.name, tag)
+                    self.inventory.add_host(hostname, tag)
 
             for key, item in host.data.items():
                 self.inventory.set_variable(hostname, map_name(key), map_dict(item))
+
+            if online_offline_groups:
+                self.inventory.add_host(hostname, status)
 
     def verify_file(self, path):
         """
@@ -326,9 +378,6 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
         super(InventoryModule, self).parse(inventory, loader, path, cache)
 
         self.config = self._read_config_data(path)
-        self.loader = loader
-        self.inventory = inventory
-        self.templar = Templar(loader=loader)
 
         self.get_inventory()
 
