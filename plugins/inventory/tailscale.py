@@ -157,11 +157,7 @@ class TailscaleHost:
         except:
             return False
 
-        print(self.name)
-        print(last_seen)
         now = datetime.utcnow()
-        print(now)
-        print(now - last_seen)
 
         return (now - last_seen) <= timeout
 
@@ -282,8 +278,6 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
     def get_inventory(self):
         api_key = self.get_option("api_key")
         tailnet = self.get_option("tailnet")
-        print(api_key)
-        print(tailnet)
         tailscale = TailscaleAPI(
             api_key, tailnet, remove_tag_prefix=self.get_option("strip_tag")
         )
