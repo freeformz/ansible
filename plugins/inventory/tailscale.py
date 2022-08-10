@@ -84,7 +84,7 @@ include_online_offline_groups: true
 online_timeout: 10
 """
 
-from ansible.plugins.inventory import BaseInventoryPlugin, Constructable, Templar
+from ansible.plugins.inventory import BaseInventoryPlugin, Constructable
 
 
 def strip_tag(tag):
@@ -92,7 +92,7 @@ def strip_tag(tag):
 
 
 def safe_tag(tag):
-    return tag.replace(":", "_").replace("-","_")
+    return tag.replace(":", "_").replace("-", "_")
 
 
 def map_name(name):
