@@ -351,13 +351,12 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 self.inventory.add_host(hostname, os)
 
             tags = host.data.get("tags", None)
-            if self.get_option("tag_groups"):
-                if tags:
-                    self.inventory.set_variable(hostname, "tags", tags)
-                    for tag in tags:
-                        if tag not in self.inventory.groups:
-                            self.inventory.add_group(tag)
-                        self.inventory.add_host(hostname, tag)
+            if self.get_option("tag_groups") and tags:
+                self.inventory.set_variable(hostname, "tags", tags)
+                for tag in tags:
+                    if tag not in self.inventory.groups:
+                        self.inventory.add_group(tag)
+                    self.inventory.add_host(hostname, tag)
 
             for key, item in host.data.items():
                 self.inventory.set_variable(hostname, map_name(key), map_dict(item))
