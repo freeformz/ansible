@@ -149,3 +149,7 @@ tailnet: freeformz.github           # The name of your tailnet - What you see at
     },
 }
 ```
+
+## Contributors
+
+* [Simon Baerlocher](https://github.com/sbaerlocher)
