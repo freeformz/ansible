@@ -6,7 +6,8 @@ Install via: `ansible-galaxy collection install freeformz.ansible`
 
 Requires a tailscale api key.
 
-Creates groups for each tag, each os (when os_groups = true - Defaults to true), and online/offline status (when include_online_offline_groups == true - Defaults to true).
+Creates groups for each tag (when `tag_groups = true` - Defaults to true), each os (when `os_groups = true` - Defaults to true), 
+and online/offline status (when include_online_offline_groups == true - Defaults to true).
 
 Tags in Tailscale start with `tag:`. This prefix is stripped when `strip_tag` == true (the default), otherwise it is converted to `tag_`.
 

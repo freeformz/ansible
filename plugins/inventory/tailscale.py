@@ -87,6 +87,7 @@ os_groups: true
 tailscale_domain: beta.tailscale.net
 include_online_offline_groups: true
 online_timeout: 10
+tag_groups: false
 """
 
 from ansible.plugins.inventory import BaseInventoryPlugin, Constructable
