@@ -69,6 +69,11 @@ DOCUMENTATION = """
             type: int
             default: 10
             required: false
+        tag_groups:
+            description: Create groups for labels?.
+            type: bool
+            default: true
+            required: false
 """
 
 EXAMPLES = """
@@ -287,8 +292,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
             for group in ["online", "offline"]:
                 self.inventory.add_group(group)
 
-        for tag in tailscale.all_tags:
-            self.inventory.add_group(tag)
+        if self.get_option("tag_groups"):
+            for tag in tailscale.all_tags:
+                self.inventory.add_group(tag)
 
         for _, host in tailscale.hosts.items():
             if not self.get_option("include_self") and host.is_self():
@@ -345,7 +351,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
                 self.inventory.add_host(hostname, os)
 
             tags = host.data.get("tags", None)
-            if tags:
+            if self.get_option("tag_groups") and tags:
                 self.inventory.set_variable(hostname, "tags", tags)
                 for tag in tags:
                     if tag not in self.inventory.groups:
@@ -357,6 +363,18 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
 
             if online_offline_groups:
                 self.inventory.add_host(hostname, status)
+
+            # Use constructed if applicable
+            strict = self.get_option('strict')
+
+            # Composed variables
+            self._set_composite_vars(self.get_option('compose'), self.inventory.get_host(hostname).get_vars(), hostname, strict=strict)
+
+            # Complex groups based on jinja2 conditionals, hosts that meet the conditional are added to group
+            self._add_host_to_composed_groups(self.get_option('groups'), {}, hostname, strict=strict)
+
+            # Create groups based on variable values and add the corresponding hosts to it
+            self._add_host_to_keyed_groups(self.get_option('keyed_groups'), {}, hostname, strict=strict)
 
     def verify_file(self, path):
         """
