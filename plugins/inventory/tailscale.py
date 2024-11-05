@@ -27,7 +27,7 @@ DOCUMENTATION = """
             required: True
             choices: ['freeformz.ansible.tailscale']
         api_key:
-            description: API key to use.
+            description: API key to use. Can also be a jinja2 template to get the key from another source, like the token endpoint with OAuth credentials.
             type: string
             required: true
         tailnet:
@@ -78,7 +78,7 @@ DOCUMENTATION = """
 
 EXAMPLES = """
 plugin: freeformz.ansible.tailscale
-api_key: "tskey-abunchofcharacters"
+api_key: '{{ lookup("pipe", "./scripts/get-tailscale-api-token") }}'
 tailnet: my.tailnet
 include_self: false
 ansible_host: host_name
@@ -282,7 +282,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
         super(InventoryModule, self).__init__()
 
     def get_inventory(self):
-        api_key = self.get_option("api_key")
+        api_key = self.templar.template(self.get_option("api_key"))
         tailnet = self.get_option("tailnet")
         tailscale = TailscaleAPI(
             api_key, tailnet, remove_tag_prefix=self.get_option("strip_tag")
