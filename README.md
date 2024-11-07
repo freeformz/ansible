@@ -37,7 +37,7 @@ inventory = ./inventory/tailscale.yaml
 ```yaml
 plugin: freeformz.ansible.tailscale # must be freeformz.ansible.tailscale
 ansible_host: ipv4                  # ipv4, ipv6, dns, or host_name - Depends on how you referred to the hosts before this
-api_key: "<a tailscale api key>"    # a Tailscale API Key - https://tailscale.com/kb/1101/api/
+api_key: "<a tailscale api key>"    # static Tailscale API Key or Jinja2 template - https://tailscale.com/kb/1101/api/
 tailnet: freeformz.github           # The name of your tailnet - What you see at the top left of https://login.tailscale.com/admin/machines
 ```
 
