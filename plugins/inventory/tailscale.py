@@ -332,16 +332,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
             elif ansible_host == "ipv6":
                 self.inventory.set_variable(hostname, "ansible_host", ipv6)
             elif ansible_host == "dns":
-                self.inventory.set_variable(
-                    hostname,
-                    "ansible_host",
-                    ".".join(
-                        [
-                            host.data["name"],
-                            self.get_option("tailscale_domain"),
-                        ]
-                    ),
-                )
+                self.inventory.set_variable(hostname, "ansible_host", host.data["name"])
             elif ansible_host == "host_name":
                 self.inventory.set_variable(hostname, "ansible_host", hostname)
 

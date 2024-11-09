@@ -151,6 +151,49 @@ tailnet: freeformz.github           # The name of your tailnet - What you see at
 }
 ```
 
+### OAuth example
+
+If you want to use [OAuth](https://tailscale.com/kb/1215/oauth-clients) to authenticate to the Tailscale API,
+especially useful as static API tokens will expire after some time, then you can use an external script to
+fill in the token:
+
+`./inventory/tailscale.yaml`
+
+```yaml
+plugin: freeformz.ansible.tailscale # must be freeformz.ansible.tailscale
+ansible_host: ipv4                  # ipv4, ipv6, dns, or host_name - Depends on how you referred to the hosts before this
+api_key: "{{ lookup('ansible.builtin.pipe', './scripts/get-tailscale-api-token' }}"
+tailnet: freeformz.github           # The name of your tailnet - What you see at the top left of https://login.tailscale.com/admin/machines
+```
+
+`./scripts/get-tailscale-api-token`
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Ensure -x is disabled so secrets aren't accidentally printed
+set +x
+
+TAILSCALE_API_RESPONSE=$(curl --retry 5 --retry-max-time 120 --silent \
+                         -d "client_id=${TAILSCALE_CLIENT_ID}" \
+                         -d "client_secret=${TAILSCALE_CLIENT_SECRET}" \
+                         "https://api.tailscale.com/api/v2/oauth/token")
+
+TAILSCALE_API_TOKEN=$(echo "${TAILSCALE_API_RESPONSE}" | jq -r '.access_token')
+
+if [[ "${TAILSCALE_API_TOKEN}" == 'null' ]]
+then
+    >&2 echo 'ERROR: Tailscale API returned an invalid API token, aborting!'
+    >&2 echo
+    >&2 echo "${TAILSCALE_API_RESPONSE}"
+    exit 1
+fi
+
+echo "${TAILSCALE_API_TOKEN}"
+```
+
 ## Contributors
 
 * [Simon Baerlocher](https://github.com/sbaerlocher)
+* [Wes Mason](https://github.com/1stvamp)
