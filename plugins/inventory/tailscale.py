@@ -283,7 +283,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable):
 
     def get_inventory(self):
         api_key = self.templar.template(self.get_option("api_key"))
-        tailnet = self.get_option("tailnet")
+        tailnet = self.templar.template(self.get_option("tailnet"))
         tailscale = TailscaleAPI(
             api_key, tailnet, remove_tag_prefix=self.get_option("strip_tag")
         )
